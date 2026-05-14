@@ -10,6 +10,37 @@ import {
 } from "@skoporama/gaze";
 import type { Point, CalibrationPoint } from "@skoporama/core";
 
+/**
+ * Generates 13 calibration points with emphasis on lateral ranges
+ */
+const generateEnhancedCalibrationPoints = (width: number, height: number): Point[] => {
+  const x = [0.1, 0.25, 0.5, 0.75, 0.9];
+  const y = [0.1, 0.5, 0.9];
+  
+  const points: Point[] = [
+    // Top Row (5 points)
+    { x: width * 0.1, y: height * 0.1 },
+    { x: width * 0.25, y: height * 0.1 },
+    { x: width * 0.5, y: height * 0.1 },
+    { x: width * 0.75, y: height * 0.1 },
+    { x: width * 0.9, y: height * 0.1 },
+    
+    // Middle Row (3 points)
+    { x: width * 0.1, y: height * 0.5 },
+    { x: width * 0.5, y: height * 0.5 },
+    { x: width * 0.9, y: height * 0.5 },
+    
+    // Bottom Row (5 points)
+    { x: width * 0.1, y: height * 0.9 },
+    { x: width * 0.25, y: height * 0.9 },
+    { x: width * 0.5, y: height * 0.9 },
+    { x: width * 0.75, y: height * 0.9 },
+    { x: width * 0.9, y: height * 0.9 },
+  ];
+  
+  return points;
+};
+
 // ─── Types ───
 
 export type GazeStatus = "idle" | "loading" | "ready" | "calibrating" | "tracking" | "error";
@@ -123,16 +154,22 @@ export function useGaze(): UseGazeReturn {
         return;
       }
 
-      const result = faceMeshRef.current.detectForVideo(video, performance.now());
-      if (result.faceLandmarks && result.faceLandmarks.length > 0) {
-        const landmarks = result.faceLandmarks[0];
-        const features = extractIrisFeatures(landmarks);
-        if (features && modelRef.current.isTrained()) {
-          const raw = modelRef.current.predict(features);
-          if (raw) {
-            const filtered = filterRef.current.filter(raw.x, raw.y);
-            setGazePoint(filtered);
+      if (faceMeshRef.current && typeof faceMeshRef.current.detectForVideo === 'function') {
+        try {
+          const result = faceMeshRef.current.detectForVideo(video, performance.now());
+          if (result.faceLandmarks && result.faceLandmarks.length > 0) {
+            const landmarks = result.faceLandmarks[0];
+            const features = extractIrisFeatures(landmarks);
+            if (features && modelRef.current.isTrained()) {
+              const raw = modelRef.current.predict(features);
+              if (raw) {
+                const filtered = filterRef.current.filter(raw.x, raw.y);
+                setGazePoint(filtered);
+              }
+            }
           }
+        } catch (err) {
+          console.error("Tracking loop detection error:", err);
         }
       }
       rafRef.current = requestAnimationFrame(tick);
@@ -142,7 +179,7 @@ export function useGaze(): UseGazeReturn {
 
   // ── Start calibration ──
   const startCalibration = useCallback(() => {
-    const points = generateCalibrationPoints(window.innerWidth, window.innerHeight);
+    const points = generateEnhancedCalibrationPoints(window.innerWidth, window.innerHeight);
     calPointsRef.current = points;
     calIndexRef.current = 0;
     samplesRef.current = [];
@@ -199,18 +236,22 @@ export function useGaze(): UseGazeReturn {
       }
 
       const video = videoRef.current!;
-      if (video.readyState >= 2) {
-        const result = faceMeshRef.current.detectForVideo(video, performance.now());
-        if (result.faceLandmarks && result.faceLandmarks.length > 0) {
-          const features = extractIrisFeatures(result.faceLandmarks[0]);
-          if (features) {
-            samplesRef.current.push({
-              screenPosition: target,
-              irisFeatures: featuresToArray(features),
-              timestamp: Date.now(),
-            });
-            count++;
+      if (video.readyState >= 2 && faceMeshRef.current && typeof faceMeshRef.current.detectForVideo === 'function') {
+        try {
+          const result = faceMeshRef.current.detectForVideo(video, performance.now());
+          if (result.faceLandmarks && result.faceLandmarks.length > 0) {
+            const features = extractIrisFeatures(result.faceLandmarks[0]);
+            if (features) {
+              samplesRef.current.push({
+                screenPosition: target,
+                irisFeatures: featuresToArray(features),
+                timestamp: Date.now(),
+              });
+              count++;
+            }
           }
+        } catch (err) {
+          console.error("Error during face detection:", err);
         }
       }
       requestAnimationFrame(collect);

@@ -134,22 +134,24 @@ export const HIERARCHICAL_LAYOUT = {
 };
 
 /**
- * Ouija / iPod Wheel layout: a single continuous strip of keys.
+ * Ouija / iPod Wheel layout (Single Row)
  * A-Z, Space, Backspace, Speak, Phrases
  */
 const OUIJA_ALPHABET = 'A B C D E F G H I J K L M N Ñ O P Q R S T U V W X Y Z'.split(' ');
 
-export const OUIJA_LAYOUT: KeyDefinition[] = [
-  ...OUIJA_ALPHABET.map((char, i) => ({
-    id: char.toLowerCase(),
-    label: char,
-    value: char.toLowerCase(),
-    row: 0,
-    col: i,
-    type: 'letter' as const
-  })),
-  { id: 'space', label: '⎵ ESPACIO', value: ' ', row: 0, col: OUIJA_ALPHABET.length, type: 'space' as const },
-  { id: 'backspace', label: '⌫ BORRAR', value: 'backspace', row: 0, col: OUIJA_ALPHABET.length + 1, type: 'backspace' as const },
-  { id: 'speak', label: '🔊 HABLAR', value: 'speak', row: 0, col: OUIJA_ALPHABET.length + 2, type: 'speak' as const },
-  { id: 'phrases', label: '💬 FRASES', value: 'phrases', row: 0, col: OUIJA_ALPHABET.length + 3, type: 'phrases' as const },
+export const OUIJA_LAYOUT: KeyDefinition[][] = [
+  [
+    ...OUIJA_ALPHABET.map((char, i) => ({
+      id: char.toLowerCase(),
+      label: char,
+      value: char.toLowerCase(),
+      row: 0,
+      col: i,
+      type: 'letter' as const
+    })),
+    { id: 'space', label: '⎵ ESPACIO', value: ' ', row: 0, col: OUIJA_ALPHABET.length, type: 'space' as const },
+    { id: 'backspace', label: '⌫ BORRAR', value: 'backspace', row: 0, col: OUIJA_ALPHABET.length + 1, type: 'backspace' as const },
+    { id: 'speak', label: '🔊 HABLAR', value: 'speak', row: 0, col: OUIJA_ALPHABET.length + 2, type: 'speak' as const },
+    { id: 'phrases', label: '💬 FRASES', value: 'phrases', row: 0, col: OUIJA_ALPHABET.length + 3, type: 'phrases' as const },
+  ]
 ];

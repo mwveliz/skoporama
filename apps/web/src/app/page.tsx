@@ -142,7 +142,7 @@ export default function Home() {
     setTimeout(() => setActiveKey(null), 200);
   };
 
-  // ── Scroll Animation Loop ──
+  // ── Scroll Animation Loop (Infinite Loop) ──
   useEffect(() => {
     let animationId: number;
     
@@ -153,17 +153,20 @@ export default function Home() {
       
       if (velocityRef.current !== 0) {
         setScrollOffset((prev) => {
-          // Calculate bounds. Left boundary is easy (0 or slightly positive)
-          // Right boundary depends on total width. OUIJA_LAYOUT length * 120px
-          const BUTTON_WIDTH = 120;
-          const totalWidth = OUIJA_LAYOUT.length * BUTTON_WIDTH;
-          const maxScrollRight = window.innerWidth / 2; 
-          const maxScrollLeft = -(totalWidth) + window.innerWidth / 2;
+          // Cada botón es 120px + 15px de gap = 135px
+          const ITEM_WIDTH = 135;
+          // Usamos el ancho de la única fila para el ciclo
+          const maxCols = OUIJA_LAYOUT[0].length;
+          const loopThreshold = maxCols * ITEM_WIDTH;
           
           let newOffset = prev + velocityRef.current * deltaTime * 0.05;
-          // Clamp scroll to avoid disappearing
-          if (newOffset > maxScrollRight) newOffset = maxScrollRight;
-          if (newOffset < maxScrollLeft) newOffset = maxScrollLeft;
+          
+          // Lógica de bucle infinito: si pasamos el ancho de una "vuelta", reseteamos
+          if (newOffset < -loopThreshold) {
+            newOffset += loopThreshold;
+          } else if (newOffset > 0) {
+            newOffset -= loopThreshold;
+          }
           
           return newOffset;
         });
@@ -219,17 +222,27 @@ export default function Home() {
     }
 
     const now = performance.now();
-    const width = window.innerWidth;
-    const height = window.innerHeight;
+    const { y } = gaze.gazePoint;
 
-    // Detect what is strictly in the center of the screen
+    // Detect mathematically which button is centered
     let hoveredKeyId: string | null = null;
     
-    // Y-coordinate of the keyboard row is generally lower half.
-    // But since the marker is fixed in CSS, we can just use the exact center.
-    const el = document.elementFromPoint(width / 2, height / 2 + 50); // +50 to hit the buttons
-    const keyEl = el?.closest("[id^='key-'], [id^='phrase-'], [id^='btn-']") as HTMLElement | null;
-    hoveredKeyId = keyEl?.id || null;
+    const ITEM_WIDTH = 135;
+    // Cálculo matemático de la columna central con módulo para el bucle infinito
+    // Sumamos 60px para que el índice 0 esté perfectamente centrado cuando scrollOffset es 0
+    const rawColumnIndex = Math.floor((-scrollOffset + 60) / ITEM_WIDTH);
+    
+    // Determinamos fila (En este modo solo hay una fila: la superior)
+    const rowIndex = 0;
+    const rowLength = OUIJA_LAYOUT[rowIndex].length;
+    
+    // Módulo para encontrar el índice real dentro del bucle
+    const realIndex = ((rawColumnIndex % rowLength) + rowLength) % rowLength;
+
+    if (realIndex >= 0 && realIndex < rowLength) {
+      const keyDef = OUIJA_LAYOUT[rowIndex][realIndex];
+      hoveredKeyId = `key-${keyDef.id}`;
+    }
 
     const dwell = dwellRef.current;
 
@@ -252,7 +265,7 @@ export default function Home() {
         } else {
           // Normal key
           const rawKeyId = hoveredKeyId.replace("key-", "");
-          const keyDef = OUIJA_LAYOUT.find((k) => k.id === rawKeyId);
+          const keyDef = OUIJA_LAYOUT[rowIndex].find((k) => k.id === rawKeyId);
           if (keyDef) {
             handleKeyPress(keyDef);
           }
@@ -387,20 +400,25 @@ export default function Home() {
         </div>
       )}
 
-      {/* Text Display */}
+      {/* Ouija Markers (Fixed Center) */}
+      <div className="ouija-marker top">
+        <div className="ouija-marker-crosshair" />
+      </div>
+
+      {/* Text Display - Now in the Center! */}
       <div className="text-display">
         <div className={`text-content ${!text ? "empty" : ""}`}>
           {text || "Empieza a escribir con el teclado..."}
           {text && <span className="cursor-blink" />}
         </div>
-        <div style={{ display: "flex", gap: "8px", alignItems: "flex-start" }}>
+        <div style={{ display: "flex", gap: "12px", justifyContent: "flex-end" }}>
           {text && (
             <button
               className="clear-button"
               onClick={() => setText("")}
               id="btn-clear"
             >
-              ✕
+              ✕ Borrar todo
             </button>
           )}
           <button
@@ -414,39 +432,39 @@ export default function Home() {
         </div>
       </div>
 
-      {/* Ouija Marker (Fixed Center) */}
-      <div className="ouija-marker">
-        <div className="ouija-marker-crosshair" />
-      </div>
-
-      {/* Keyboard Ribbon */}
-      <div className="ouija-container">
+      {/* Keyboard Ribbons (Single Top Ribbon) */}
+      <div className="ouija-container top">
         <div 
           className="ouija-strip"
           style={{ transform: `translateX(${scrollOffset}px)` }}
         >
-          {OUIJA_LAYOUT.map((key) => {
-            const keyId = `key-${key.id}`;
-            const isGazed = dwellKeyId === keyId;
-            return (
-              <button
-                key={key.id}
-                className={`key key-giant ${getKeyClass(key)} ${activeKey === key.id ? "selected" : ""} ${isGazed ? "gaze-active" : ""}`}
-                onClick={() => handleKeyPress(key as KeyDefinition)}
-                style={key.width ? { width: `${key.width * 120}px` } : { width: '120px' }}
-                id={keyId}
-              >
-                {/* Dwell fill bar */}
-                {isGazed && dwellProgress > 0 && (
-                  <div
-                    className="dwell-fill"
-                    style={{ width: `${dwellProgress * 100}%` }}
-                  />
-                )}
-                {key.label}
-              </button>
-            );
-          })}
+          {/* Render multiple copies for infinite loop effect */}
+          {[-2, -1, 0, 1, 2].map((copyIndex) => (
+            <div key={`copy-${copyIndex}`} style={{ display: "flex", gap: "15px" }}>
+              {OUIJA_LAYOUT[0].map((key) => {
+                const keyId = `key-${key.id}`;
+                const isGazed = dwellKeyId === keyId;
+                return (
+                  <button
+                    key={`${keyId}-${copyIndex}`}
+                    className={`key key-giant ${getKeyClass(key)} ${activeKey === key.id ? "selected" : ""} ${isGazed ? "gaze-active" : ""}`}
+                    onClick={() => handleKeyPress(key as KeyDefinition)}
+                    style={key.width ? { width: `${key.width * 120}px` } : { width: '120px' }}
+                    id={keyId}
+                  >
+                    {/* Dwell fill bar */}
+                    {isGazed && dwellProgress > 0 && (
+                      <div
+                        className="dwell-fill"
+                        style={{ width: `${dwellProgress * 100}%` }}
+                      />
+                    )}
+                    {key.label}
+                  </button>
+                );
+              })}
+            </div>
+          ))}
         </div>
       </div>
 
