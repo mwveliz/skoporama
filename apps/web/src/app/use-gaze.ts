@@ -48,7 +48,7 @@ export function useGaze(): UseGazeReturn {
   const streamRef = useRef<MediaStream | null>(null);
   const faceMeshRef = useRef<any>(null);
   const modelRef = useRef(new GazeRegressionModel());
-  const filterRef = useRef(new GazeFilter(30, { minCutoff: 0.02, beta: 0.0005 }));
+  const filterRef = useRef(new GazeFilter(30, { minCutoff: 1.0, beta: 0.1 }));
   const rafRef = useRef<number>(0);
   const samplesRef = useRef<CalibrationPoint[]>([]);
   const collectingRef = useRef(false);

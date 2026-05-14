@@ -1,8 +1,8 @@
 "use client";
 
-import { useState, useCallback, useEffect, useRef } from "react";
+import { useState, useCallback, useEffect, useRef, useMemo } from "react";
 import {
-  HIERARCHICAL_LAYOUT,
+  OUIJA_LAYOUT,
   DEFAULT_PHRASE_CATEGORIES,
   type KeyDefinition,
   type Prediction,
@@ -38,11 +38,13 @@ export default function Home() {
   const [predictions, setPredictions] = useState<Prediction[]>([]);
   const [showPhrases, setShowPhrases] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
-  const [activeKey, setActiveKey] = useState<string | null>(null);
-  const [activeGroupId, setActiveGroupId] = useState<string | null>(null);
   const [showSettings, setShowSettings] = useState(false);
+  const [activeKey, setActiveKey] = useState<string | null>(null);
   const [dwellKeyId, setDwellKeyId] = useState<string | null>(null);
   const [dwellProgress, setDwellProgress] = useState(0);
+  const [scrollOffset, setScrollOffset] = useState(0);
+  const velocityRef = useRef(0);
+  const lastTimeRef = useRef<number>(0);
   const ttsRef = useRef<WebTTSEngine | null>(null);
   const dwellRef = useRef<{ keyId: string | null; startTime: number; fired: boolean }>({
     keyId: null,
@@ -50,7 +52,7 @@ export default function Home() {
     fired: false,
   });
 
-  const DWELL_TIME_MS = 1500; // 1.5 seconds to select
+  const DWELL_TIME_MS = 2000; // 2 seconds to select
 
   const gaze = useGaze();
 
@@ -71,65 +73,34 @@ export default function Home() {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [gaze.calibration, gaze.collectCalibrationSample]);
 
-  // Update predictions when text changes
-  useEffect(() => {
-    const currentWord = getCurrentWord(text);
-    if (currentWord.length >= 1) {
-      const preds = predictFromPrefix(currentWord, {
-        maxResults: 5,
-        language: "es",
-      });
-      setPredictions(preds);
-    } else {
-      setPredictions([]);
-    }
-  }, [text]);
+
 
   const handleKeyPress = useCallback(
     (key: KeyDefinition) => {
-      let isAction = false;
       switch (key.type) {
-        case "group":
-          setActiveGroupId(key.id);
-          flashKey(key.id);
-          return; // Stay in keyboard
-        case "back":
-          setActiveGroupId(null);
-          flashKey(key.id);
-          return; // Stay in keyboard
         case "letter":
           setText((t) => t + key.value);
           flashKey(key.id);
-          isAction = true;
           break;
         case "space":
           setText((t) => t + " ");
           flashKey(key.id);
-          isAction = true;
           break;
         case "backspace":
           setText((t) => t.slice(0, -1));
           flashKey(key.id);
-          isAction = true;
           break;
         case "speak":
           handleSpeak();
-          isAction = true;
           break;
         case "phrases":
           setShowPhrases(true);
-          isAction = true;
           break;
         default:
           break;
       }
-      
-      // Auto-return to main groups after picking a letter/action
-      if (isAction && activeGroupId) {
-        setActiveGroupId(null);
-      }
     },
-    [text, activeGroupId]
+    [text]
   );
 
   const handleSpeak = useCallback(async () => {
@@ -171,7 +142,67 @@ export default function Home() {
     setTimeout(() => setActiveKey(null), 200);
   };
 
-  // ── Dwell detection: gaze stays on a key → select it ──
+  // ── Scroll Animation Loop ──
+  useEffect(() => {
+    let animationId: number;
+    
+    const animate = (time: number) => {
+      if (!lastTimeRef.current) lastTimeRef.current = time;
+      const deltaTime = time - lastTimeRef.current;
+      lastTimeRef.current = time;
+      
+      if (velocityRef.current !== 0) {
+        setScrollOffset((prev) => {
+          // Calculate bounds. Left boundary is easy (0 or slightly positive)
+          // Right boundary depends on total width. OUIJA_LAYOUT length * 120px
+          const BUTTON_WIDTH = 120;
+          const totalWidth = OUIJA_LAYOUT.length * BUTTON_WIDTH;
+          const maxScrollRight = window.innerWidth / 2; 
+          const maxScrollLeft = -(totalWidth) + window.innerWidth / 2;
+          
+          let newOffset = prev + velocityRef.current * deltaTime * 0.05;
+          // Clamp scroll to avoid disappearing
+          if (newOffset > maxScrollRight) newOffset = maxScrollRight;
+          if (newOffset < maxScrollLeft) newOffset = maxScrollLeft;
+          
+          return newOffset;
+        });
+      }
+      
+      animationId = requestAnimationFrame(animate);
+    };
+    
+    animationId = requestAnimationFrame(animate);
+    return () => cancelAnimationFrame(animationId);
+  }, []);
+
+  // ── Determine Velocity based on Gaze X ──
+  useEffect(() => {
+    if (gaze.status !== "tracking" || !gaze.gazePoint) {
+      velocityRef.current = 0;
+      return;
+    }
+    
+    const x = gaze.gazePoint.x;
+    const width = window.innerWidth;
+    
+    const ZONE_LEFT = width * 0.35;
+    const ZONE_RIGHT = width * 0.65;
+    
+    if (x < ZONE_LEFT) {
+      // Mirar izquierda -> Mover cinta a la derecha (scroll positivo)
+      const intensity = (ZONE_LEFT - x) / ZONE_LEFT;
+      velocityRef.current = intensity * 15; // Velocidad max
+    } else if (x > ZONE_RIGHT) {
+      // Mirar derecha -> Mover cinta a la izquierda (scroll negativo)
+      const intensity = (x - ZONE_RIGHT) / (width - ZONE_RIGHT);
+      velocityRef.current = -intensity * 15;
+    } else {
+      velocityRef.current = 0;
+    }
+  }, [gaze.gazePoint, gaze.status]);
+
+  // ── Dwell detection: fixed central marker ──
   useEffect(() => {
     if (gaze.status !== "tracking" || !gaze.gazePoint) {
       setDwellKeyId(null);
@@ -179,52 +210,68 @@ export default function Home() {
       return;
     }
 
-    // Find which key element is under the gaze point
-    const el = document.elementFromPoint(gaze.gazePoint.x, gaze.gazePoint.y);
-    const keyEl = el?.closest("[id^='key-']") as HTMLElement | null;
-    const hoveredKeyId = keyEl?.id?.replace("key-", "") || null;
+    // Only progress dwell if we are in the center zone (not scrolling)
+    if (velocityRef.current !== 0) {
+      setDwellKeyId(null);
+      setDwellProgress(0);
+      dwellRef.current.startTime = performance.now();
+      return;
+    }
+
+    const now = performance.now();
+    const width = window.innerWidth;
+    const height = window.innerHeight;
+
+    // Detect what is strictly in the center of the screen
+    let hoveredKeyId: string | null = null;
+    
+    // Y-coordinate of the keyboard row is generally lower half.
+    // But since the marker is fixed in CSS, we can just use the exact center.
+    const el = document.elementFromPoint(width / 2, height / 2 + 50); // +50 to hit the buttons
+    const keyEl = el?.closest("[id^='key-'], [id^='phrase-'], [id^='btn-']") as HTMLElement | null;
+    hoveredKeyId = keyEl?.id || null;
 
     const dwell = dwellRef.current;
-    const now = performance.now();
 
     if (hoveredKeyId && hoveredKeyId === dwell.keyId) {
-      // Same key — accumulate time
       const elapsed = now - dwell.startTime;
       const progress = Math.min(elapsed / DWELL_TIME_MS, 1);
       setDwellProgress(progress);
       setDwellKeyId(hoveredKeyId);
 
       if (progress >= 1 && !dwell.fired) {
-        // FIRE! Find the key definition and press it
         dwell.fired = true;
-        const currentLayout = activeGroupId 
-          ? HIERARCHICAL_LAYOUT.groups[activeGroupId as keyof typeof HIERARCHICAL_LAYOUT.groups]
-          : HIERARCHICAL_LAYOUT.main;
 
-        for (const row of currentLayout) {
-          const keyDef = row.find((k) => k.id === hoveredKeyId);
+        if (hoveredKeyId.startsWith("phrase-")) {
+          const phraseText = hoveredKeyId.replace("phrase-", "").replace(/-/g, " ");
+          const realPhrase = DEFAULT_PHRASE_CATEGORIES.flatMap(c => c.phrases)
+            .find(p => p.replace(/\s/g, "-").toLowerCase() === hoveredKeyId.replace("phrase-", ""));
+          handleSelectPhrase(realPhrase || phraseText);
+        } else if (hoveredKeyId === "btn-close-phrases") {
+          setShowPhrases(false);
+        } else {
+          // Normal key
+          const rawKeyId = hoveredKeyId.replace("key-", "");
+          const keyDef = OUIJA_LAYOUT.find((k) => k.id === rawKeyId);
           if (keyDef) {
             handleKeyPress(keyDef);
-            break;
           }
         }
-        // Reset after firing
+
         setTimeout(() => {
-          dwellRef.current = { keyId: null, startTime: 0, fired: false };
+          dwellRef.current = { keyId: null, startTime: now + 500, fired: false };
           setDwellKeyId(null);
           setDwellProgress(0);
         }, 300);
       }
     } else {
-      // Different key or no key — reset
       dwell.keyId = hoveredKeyId;
       dwell.startTime = now;
       dwell.fired = false;
       setDwellKeyId(hoveredKeyId);
       setDwellProgress(0);
     }
-  }, [gaze.gazePoint, gaze.status, handleKeyPress]);
-
+  }, [gaze.gazePoint, gaze.status, handleKeyPress, handleSelectPhrase, scrollOffset]);
   // ── Enter keyboard, optionally start calibration ──
   const enterKeyboard = useCallback(
     (startCalibrating: boolean) => {
@@ -367,69 +414,43 @@ export default function Home() {
         </div>
       </div>
 
-      {/* Prediction Bar */}
-      <div className="prediction-bar">
-        {Array.from({ length: 5 }).map((_, i) => {
-          const pred = predictions[i];
-          return (
-            <button
-              key={i}
-              className={`prediction-chip ${!pred ? "empty" : ""}`}
-              onClick={() => pred && handleSelectPrediction(pred)}
-              disabled={!pred}
-              id={`prediction-${i}`}
-            >
-              <span>{pred?.word ?? "·"}</span>
-              {pred && (
-                <span className="prediction-source">{pred.source}</span>
-              )}
-            </button>
-          );
-        })}
+      {/* Ouija Marker (Fixed Center) */}
+      <div className="ouija-marker">
+        <div className="ouija-marker-crosshair" />
       </div>
 
-      {/* Keyboard */}
-      <div className="keyboard">
-        {(activeGroupId 
-          ? HIERARCHICAL_LAYOUT.groups[activeGroupId as keyof typeof HIERARCHICAL_LAYOUT.groups]
-          : HIERARCHICAL_LAYOUT.main
-        ).map((row, rowIndex) => (
-          <div className="keyboard-row" key={`row-${rowIndex}`}>
-            {row.map((key) => {
-              const isGazed = dwellKeyId === key.id;
-              return (
-                <button
-                  key={key.id}
-                  className={`key key-giant ${getKeyClass(key)} ${activeKey === key.id ? "selected" : ""} ${isGazed ? "gaze-active" : ""}`}
-                  onClick={() => handleKeyPress(key as KeyDefinition)}
-                  style={key.width ? { flex: key.width } : undefined}
-                  id={`key-${key.id}`}
-                >
-                  {/* Dwell fill bar */}
-                  {isGazed && dwellProgress > 0 && (
-                    <div
-                      className="dwell-fill"
-                      style={{ width: `${dwellProgress * 100}%` }}
-                    />
-                  )}
-                  {key.label}
-                </button>
-              );
-            })}
-          </div>
-        ))}
-      </div>
-
-      {/* Gaze indicator */}
-      {gaze.gazePoint && gaze.status === "tracking" && (
-        <div
-          className="gaze-indicator"
-          style={{ left: gaze.gazePoint.x, top: gaze.gazePoint.y }}
+      {/* Keyboard Ribbon */}
+      <div className="ouija-container">
+        <div 
+          className="ouija-strip"
+          style={{ transform: `translateX(${scrollOffset}px)` }}
         >
-          <div className="gaze-dot" />
-          <div className="gaze-ring" />
+          {OUIJA_LAYOUT.map((key) => {
+            const keyId = `key-${key.id}`;
+            const isGazed = dwellKeyId === keyId;
+            return (
+              <button
+                key={key.id}
+                className={`key key-giant ${getKeyClass(key)} ${activeKey === key.id ? "selected" : ""} ${isGazed ? "gaze-active" : ""}`}
+                onClick={() => handleKeyPress(key as KeyDefinition)}
+                style={key.width ? { width: `${key.width * 120}px` } : { width: '120px' }}
+                id={keyId}
+              >
+                {/* Dwell fill bar */}
+                {isGazed && dwellProgress > 0 && (
+                  <div
+                    className="dwell-fill"
+                    style={{ width: `${dwellProgress * 100}%` }}
+                  />
+                )}
+                {key.label}
+              </button>
+            );
+          })}
         </div>
-      )}
+      </div>
+
+
 
       {/* Calibration overlay */}
       {gaze.calibration && (
@@ -494,26 +515,34 @@ export default function Home() {
             onClick={(e) => e.stopPropagation()}
           >
             <h2>💬 Frases Rápidas</h2>
-            {DEFAULT_PHRASE_CATEGORIES.map((category) => (
-              <div className="phrase-category" key={category.id}>
-                <div className="phrase-category-title">
-                  <span>{category.icon}</span>
-                  <span>{category.name}</span>
-                </div>
-                <div className="phrase-grid">
-                  {category.phrases.map((phrase) => (
+            <div className="phrases-ribbon-container">
+              <div className="offscreen-hint left" id="offscreen-left">⬅️</div>
+              <div className="phrases-ribbon">
+                {DEFAULT_PHRASE_CATEGORIES.flatMap(c => c.phrases).map((phrase) => {
+                  const phraseId = `phrase-${phrase.replace(/\s/g, "-").toLowerCase()}`;
+                  const isGazed = dwellKeyId === phraseId;
+                  
+                  return (
                     <button
                       key={phrase}
-                      className="phrase-btn"
+                      className={`phrase-btn ${isGazed ? "gaze-active" : ""}`}
                       onClick={() => handleSelectPhrase(phrase)}
-                      id={`phrase-${phrase.replace(/\s/g, "-").toLowerCase()}`}
+                      id={phraseId}
                     >
+                      {/* Dwell fill bar */}
+                      {isGazed && dwellProgress > 0 && (
+                        <div
+                          className="dwell-fill"
+                          style={{ width: `${dwellProgress * 100}%` }}
+                        />
+                      )}
                       {phrase}
                     </button>
-                  ))}
-                </div>
+                  );
+                })}
               </div>
-            ))}
+              <div className="offscreen-hint right" id="offscreen-right">➡️</div>
+            </div>
             <button
               className="phrases-close"
               onClick={() => setShowPhrases(false)}

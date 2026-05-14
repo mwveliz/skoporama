@@ -326,11 +326,34 @@ html, body {
 /*  Prediction Bar                             */
 /* ═══════════════════════════════════════════ */
 
+.prediction-bar-container {
+  display: flex;
+  align-items: stretch;
+  gap: var(--gap-sm);
+  width: 100%;
+  min-height: 44px;
+}
+
+.offscreen-hint {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 var(--gap-md);
+  background: var(--glass-bg);
+  border: 1px dashed var(--glass-border);
+  border-radius: var(--radius-md);
+  color: var(--text-muted);
+  font-size: 20px;
+  min-width: 44px;
+}
+
 .prediction-bar {
   display: flex;
   gap: var(--gap-sm);
-  min-height: 44px;
+  flex: 1;
   align-items: stretch;
+  overflow-x: auto;
+  white-space: nowrap;
 }
 
 .prediction-chip {
@@ -362,9 +385,10 @@ html, body {
   transition: opacity 0.2s;
 }
 
-.prediction-chip:hover {
+.prediction-chip:hover, .prediction-chip.focused {
   border-color: var(--accent-cyan);
   transform: translateY(-1px);
+  box-shadow: 0 0 15px rgba(56, 189, 248, 0.4);
 }
 
 .prediction-chip:hover::before {
@@ -390,29 +414,68 @@ html, body {
 }
 
 /* ═══════════════════════════════════════════ */
-/*  Keyboard                                   */
+/*  Ouija / iPod Wheel Model                   */
 /* ═══════════════════════════════════════════ */
 
-.keyboard {
+.ouija-container {
+  position: relative;
+  width: 100%;
+  height: 250px;
+  overflow: hidden;
   display: flex;
-  flex-direction: column;
-  gap: var(--gap-sm);
-  flex: 1;
-  min-height: 0;
+  align-items: center;
+  margin-top: 20px;
+  background: var(--glass-bg);
+  border-top: 1px solid var(--glass-border);
+  border-bottom: 1px solid var(--glass-border);
+  box-shadow: inset 0 0 50px rgba(0, 0, 0, 0.5);
 }
 
-.keyboard-row {
+.ouija-strip {
   display: flex;
-  justify-content: center;
-  gap: var(--gap-sm);
-  flex: 1;
+  align-items: center;
+  gap: 10px;
+  position: absolute;
+  /* El borde izquierdo empieza en el centro exacto */
+  left: calc(50% - 60px); /* 60px is half of the 120px button width, keeping it centered */
+  height: 150px;
+  will-change: transform;
+}
+
+.ouija-marker {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 130px;
+  height: 160px;
+  border: 4px solid var(--accent-cyan);
+  border-radius: var(--radius-lg);
+  box-shadow: 
+    0 0 30px rgba(56, 189, 248, 0.4), 
+    inset 0 0 20px rgba(56, 189, 248, 0.2);
+  z-index: 10;
+  pointer-events: none;
+  background: rgba(56, 189, 248, 0.05);
+}
+
+.ouija-marker-crosshair {
+  position: absolute;
+  top: -10px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 4px;
+  height: 10px;
+  background: var(--accent-cyan);
+  border-radius: 2px;
 }
 
 .key {
   display: flex;
   align-items: center;
   justify-content: center;
-  flex: 1;
+  flex: none; /* Do not grow/shrink, fixed width applied inline */
+  height: 100%;
   background: var(--key-default);
   border: 1px solid transparent;
   border-radius: var(--radius-md);
@@ -639,6 +702,23 @@ html, body {
   background-clip: text;
 }
 
+.phrases-ribbon-container {
+  display: flex;
+  align-items: stretch;
+  gap: var(--gap-sm);
+  width: 100%;
+  margin-bottom: var(--gap-lg);
+}
+
+.phrases-ribbon {
+  display: flex;
+  gap: var(--gap-sm);
+  flex: 1;
+  overflow-x: auto;
+  white-space: nowrap;
+  padding-bottom: var(--gap-sm);
+}
+
 .phrase-category {
   margin-bottom: var(--gap-lg);
 }
@@ -660,16 +740,17 @@ html, body {
 }
 
 .phrase-btn {
-  padding: 12px 16px;
-  background: var(--key-default);
+  padding: 16px 24px;
+  background: var(--glass-bg);
   border: 1px solid var(--glass-border);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-lg);
   color: var(--text-primary);
-  font-size: 14px;
-  font-weight: 500;
+  font-family: 'Inter', sans-serif;
+  font-size: 16px;
   cursor: pointer;
   transition: all 0.2s;
-  text-align: center;
+  white-space: nowrap;
+  flex: none;
 }
 
 .phrase-btn:hover {
